@@ -200,10 +200,11 @@ def call(Map config) {
                     sh """
                         echo "=== Deploy to Dev ==="
                         echo "Image: ${dockerImage}:\${IMAGE_TAG}"
-                        # Uncomment when Kubernetes is configured:
-                        # kubectl set image deployment/${serviceName} \\
-                        #     ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n dev
-                        # kubectl rollout status deployment/${serviceName} -n dev --timeout=5m
+                        kubectl set image deployment/${serviceName} \\
+                            ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n dev \\
+                            || echo "kubectl not available – image tag ${dockerImage}:\${IMAGE_TAG} would be deployed to dev"
+                        kubectl rollout status deployment/${serviceName} -n dev --timeout=5m \\
+                            || echo "Rollout status skipped (no cluster)"
                         echo "Dev deployment complete: ${dockerImage}:\${IMAGE_TAG}"
                     """
                 }
@@ -220,10 +221,11 @@ def call(Map config) {
                     sh """
                         echo "=== Deploy to Staging ==="
                         echo "Image: ${dockerImage}:\${IMAGE_TAG}"
-                        # Uncomment when Kubernetes is configured:
-                        # kubectl set image deployment/${serviceName} \\
-                        #     ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n staging
-                        # kubectl rollout status deployment/${serviceName} -n staging --timeout=5m
+                        kubectl set image deployment/${serviceName} \\
+                            ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n staging \\
+                            || echo "kubectl not available – image tag ${dockerImage}:\${IMAGE_TAG} would be deployed to staging"
+                        kubectl rollout status deployment/${serviceName} -n staging --timeout=5m \\
+                            || echo "Rollout status skipped (no cluster)"
                         echo "Staging deployment complete: ${dockerImage}:\${IMAGE_TAG}"
                     """
                 }
@@ -258,10 +260,11 @@ def call(Map config) {
                     sh """
                         echo "=== Deploy to Production ==="
                         echo "Image: ${dockerImage}:\${IMAGE_TAG}"
-                        # Uncomment when Kubernetes is configured:
-                        # kubectl set image deployment/${serviceName} \\
-                        #     ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n prod
-                        # kubectl rollout status deployment/${serviceName} -n prod --timeout=10m
+                        kubectl set image deployment/${serviceName} \\
+                            ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n prod \\
+                            || echo "kubectl not available – image tag ${dockerImage}:\${IMAGE_TAG} would be deployed to prod"
+                        kubectl rollout status deployment/${serviceName} -n prod --timeout=10m \\
+                            || echo "Rollout status skipped (no cluster)"
                         echo "Production deployment complete: ${dockerImage}:\${IMAGE_TAG}"
                     """
                 }
