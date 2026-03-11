@@ -200,11 +200,14 @@ def call(Map config) {
                     sh """
                         echo "=== Deploy to Dev ==="
                         echo "Image: ${dockerImage}:\${IMAGE_TAG}"
+                        # Update the image tag in the running deployment.
+                        # Prerequisite: run 'kubectl apply -k k8s/overlays/dev' once
+                        # from the project root to create namespace, services, and PVs.
                         kubectl set image deployment/${serviceName} \\
                             ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n dev \\
-                            || echo "kubectl not available – image tag ${dockerImage}:\${IMAGE_TAG} would be deployed to dev"
+                            || echo "[WARN] kubectl set image failed – ensure the dev namespace is initialised: kubectl apply -k k8s/overlays/dev"
                         kubectl rollout status deployment/${serviceName} -n dev --timeout=5m \\
-                            || echo "Rollout status skipped (no cluster)"
+                            || echo "[WARN] Rollout status unavailable"
                         echo "Dev deployment complete: ${dockerImage}:\${IMAGE_TAG}"
                     """
                 }
@@ -223,9 +226,9 @@ def call(Map config) {
                         echo "Image: ${dockerImage}:\${IMAGE_TAG}"
                         kubectl set image deployment/${serviceName} \\
                             ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n staging \\
-                            || echo "kubectl not available – image tag ${dockerImage}:\${IMAGE_TAG} would be deployed to staging"
+                            || echo "[WARN] kubectl set image failed – ensure the staging namespace is initialised: kubectl apply -k k8s/overlays/staging"
                         kubectl rollout status deployment/${serviceName} -n staging --timeout=5m \\
-                            || echo "Rollout status skipped (no cluster)"
+                            || echo "[WARN] Rollout status unavailable"
                         echo "Staging deployment complete: ${dockerImage}:\${IMAGE_TAG}"
                     """
                 }
@@ -262,9 +265,9 @@ def call(Map config) {
                         echo "Image: ${dockerImage}:\${IMAGE_TAG}"
                         kubectl set image deployment/${serviceName} \\
                             ${serviceName}=${dockerImage}:\${IMAGE_TAG} -n prod \\
-                            || echo "kubectl not available – image tag ${dockerImage}:\${IMAGE_TAG} would be deployed to prod"
+                            || echo "[WARN] kubectl set image failed – ensure the prod namespace is initialised: kubectl apply -k k8s/overlays/prod"
                         kubectl rollout status deployment/${serviceName} -n prod --timeout=10m \\
-                            || echo "Rollout status skipped (no cluster)"
+                            || echo "[WARN] Rollout status unavailable"
                         echo "Production deployment complete: ${dockerImage}:\${IMAGE_TAG}"
                     """
                 }
@@ -280,7 +283,38 @@ def call(Map config) {
                 echo "Pipeline PASSED: ${serviceName} [${env.IMAGE_TAG}]"
             }
             failure {
-                echo "Pipeline FAILED: ${serviceName}"
+                script {
+                    echo "Pipeline FAILED: ${serviceName}"
+                    // Fire PagerDuty alert only on production failures
+                    if (env.PIPELINE_TYPE == 'PROD') {
+                        withCredentials([string(credentialsId: 'pagerduty-routing-key', variable: 'PD_KEY')]) {
+                            sh """
+                                echo '=== PagerDuty: Production Deploy Failure Alert ==='
+                                curl -s --max-time 10 -X POST https://events.pagerduty.com/v2/enqueue \\
+                                    -H 'Content-Type: application/json' \\
+                                    -d '{
+                                        "routing_key": "'"\$PD_KEY"'",
+                                        "event_action": "trigger",
+                                        "dedup_key": "cicd-prod-deploy-${serviceName}",
+                                        "payload": {
+                                            "summary": "Production deployment FAILED: ${serviceName} [${env.IMAGE_TAG ?: 'unknown'}]",
+                                            "severity": "critical",
+                                            "source": "Jenkins CI/CD",
+                                            "component": "${serviceName}",
+                                            "group": "ecommerce-platform",
+                                            "class": "deployment",
+                                            "custom_details": {
+                                                "build_number": "${env.BUILD_NUMBER}",
+                                                "branch": "${env.BRANCH_NAME}",
+                                                "image_tag": "${env.IMAGE_TAG ?: 'unknown'}",
+                                                "jenkins_url": "${env.BUILD_URL}"
+                                            }
+                                        }
+                                    }' || echo '[WARN] PagerDuty notification failed'
+                            """
+                        }
+                    }
+                }
             }
         }
     }
